@@ -41,7 +41,7 @@ body {
 
 .join-box {
   text-align: center;
-  padding: 3rem 3.5rem;
+  padding: 3rem 2rem;
   border: 1px solid var(--red);
   background: var(--surface);
   box-shadow: 0 0 60px var(--red-glow), inset 0 0 30px rgba(0,0,0,0.4);
@@ -511,6 +511,9 @@ body {
 
 /* ─── Host Controls ────────────────────────────────────────────────────────── */
 #host-controls { margin-left: auto; display: flex; gap: 0.5rem; align-items: center; }
+
+#btn-reset { border-color: #555; color: var(--dim); }
+#btn-reset:hover { border-color: var(--red); color: var(--red); }
 
 /* ─── Sidebar ──────────────────────────────────────────────────────────────── */
 #sidebar {

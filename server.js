@@ -452,6 +452,21 @@ io.on('connection', socket => {
     emit();
   });
 
+  socket.on('reset-game', () => {
+    if (socket.id !== game.hostId) return;
+    if (game.betTimer) { clearTimeout(game.betTimer); game.betTimer = null; }
+    game.phase = 'waiting';
+    game.players = [];
+    game.dealer = { cards: [], revealed: false };
+    game.shoe = buildShoe(game.rules.numDecks);
+    game.activeIdx = -1;
+    game.hostId = null;
+    game.dealerPresent = false;
+    game.insuranceOpen = false;
+    io.emit('reset');
+    emit();
+  });
+
   socket.on('disconnect', () => {
     const p = game.players.find(p => p.id === socket.id);
     if (!p) return;

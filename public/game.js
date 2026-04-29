@@ -37,6 +37,20 @@ socket.on('join-error', (msg) => {
   errEl.classList.remove('hidden');
 });
 
+socket.on('reset', () => {
+  myId = null;
+  amHost = false;
+  myRole = null;
+  state = null;
+  pendingBet = 0;
+  betTimerEnd = 0;
+  stopBetTimer();
+  el('game-screen').classList.add('hidden');
+  el('join-screen').classList.remove('hidden');
+  el('join-error').classList.add('hidden');
+  el('name-input').value = '';
+});
+
 // ─── Join ─────────────────────────────────────────────────────────────────────
 
 function updateDealerButton(s) {
@@ -461,6 +475,12 @@ el('btn-ins-yes').addEventListener('click', () => socket.emit('action', { action
 el('btn-ins-no').addEventListener('click',  () => socket.emit('action', { action: 'no-insurance' }));
 
 el('btn-start').addEventListener('click', () => socket.emit('start'));
+
+el('btn-reset').addEventListener('click', () => {
+  if (confirm('Reset the game? All players will be removed and everyone will return to the join screen.')) {
+    socket.emit('reset-game');
+  }
+});
 
 // ─── Rules Panel ─────────────────────────────────────────────────────────────
 
