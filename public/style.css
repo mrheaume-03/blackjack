@@ -61,7 +61,7 @@ body {
 .join-box h1 {
   font-size: 3rem;
   letter-spacing: 0.15em;
-  padding-left: 0.15em;
+  text-align: center;
   color: var(--text);
   text-shadow: 0 0 30px var(--red-glow);
   margin-bottom: 2rem;
