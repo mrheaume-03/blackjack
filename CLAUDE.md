@@ -47,6 +47,7 @@ Key functions: `beginBetting`, `beginDealing`, `advanceTurn`, `dealerPlay`, `pay
 | `set-rules` | rules object | host updates table rules (waiting phase only) |
 | `rebuy` | `{ id }` | host adds a buy-in to a player |
 | `kick` | `{ id }` | host removes a player (waiting phase only) |
+| `reset-game` | — | host wipes all players and resets to clean state; server emits `reset` to all clients who return to join screen |
 
 ### Configurable rules (`DEFAULT_RULES`)
 
