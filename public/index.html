@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+  <title>Blackjack</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- JOIN SCREEN -->
+  <div id="join-screen">
+    <div class="join-box">
+      <div class="join-suits">♠ ♥ ♦ ♣</div>
+      <h1>BLACKJACK</h1>
+      <input id="name-input" type="text" placeholder="Enter your name" maxlength="20" autocomplete="off">
+      <div class="join-role-row">
+        <button id="btn-join-dealer" class="btn-role btn-dealer">🂠 Take Dealer Seat</button>
+        <button id="btn-join-player" class="btn-role btn-player">Join as Player</button>
+      </div>
+      <div id="join-error" class="join-error hidden"></div>
+    </div>
+  </div>
+
+  <!-- GAME SCREEN -->
+  <div id="game-screen" class="hidden">
+
+    <!-- HEADER -->
+    <header id="top-bar">
+      <div id="phase-display">Waiting for players...</div>
+      <div id="header-center">
+        <span id="shoe-display"></span>
+      </div>
+      <div id="header-right">
+        <button id="rules-btn" class="btn-ghost small">⚙ Rules</button>
+      </div>
+    </header>
+
+    <!-- RULES PANEL (host only) -->
+    <div id="rules-panel" class="hidden">
+      <div class="rules-inner">
+        <h3>Table Rules</h3>
+        <div class="rules-grid">
+          <label>Number of Decks
+            <input type="number" id="r-decks" min="1" max="8" value="6">
+          </label>
+          <label>Dealer Hits Soft 17
+            <input type="checkbox" id="r-soft17" checked>
+          </label>
+          <label>Blackjack Payout
+            <select id="r-bj-pay">
+              <option value="3:2">3 : 2</option>
+              <option value="6:5">6 : 5</option>
+            </select>
+          </label>
+          <label>Insurance
+            <input type="checkbox" id="r-ins" checked>
+          </label>
+          <label>Surrender
+            <select id="r-surrender">
+              <option value="late">Late Surrender</option>
+              <option value="early">Early Surrender</option>
+              <option value="none">No Surrender</option>
+            </select>
+          </label>
+          <label>Double Down On
+            <select id="r-double-on">
+              <option value="any">Any Two Cards</option>
+              <option value="9-11">9, 10, or 11</option>
+              <option value="10-11">10 or 11 Only</option>
+            </select>
+          </label>
+          <label>Double After Split
+            <input type="checkbox" id="r-das" checked>
+          </label>
+          <label>Max Hands from Split
+            <input type="number" id="r-max-split-hands" min="1" max="8" value="2">
+          </label>
+          <label>Hit Split Aces
+            <input type="checkbox" id="r-hsa">
+          </label>
+          <label>Min Bet ($)
+            <input type="number" id="r-min" min="1" value="5">
+          </label>
+          <label>Max Bet ($)
+            <input type="number" id="r-max" min="1" value="500">
+          </label>
+          <label>Buy-In ($)
+            <input type="number" id="r-buyin" min="1" value="1000">
+          </label>
+          <label>Max Players
+            <input type="number" id="r-max-players" min="2" max="12" value="6">
+          </label>
+          <label>Betting Time (sec)
+            <input type="number" id="r-btime" min="10" max="120" value="30">
+          </label>
+        </div>
+        <div class="rules-footer">
+          <button id="rules-save" class="btn-primary">Save Rules</button>
+          <button id="rules-close" class="btn-ghost">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- TABLE -->
+    <div id="table">
+
+      <!-- DEALER AREA -->
+      <div id="dealer-area">
+        <div class="area-label">DEALER</div>
+        <div id="dealer-cards" class="card-row"></div>
+        <div id="dealer-total" class="hand-total"></div>
+      </div>
+
+      <!-- DIVIDER LINE -->
+      <div id="table-divider"></div>
+
+      <!-- PLAYERS ROW -->
+      <div id="players-row"></div>
+
+    </div>
+
+    <!-- ACTION BAR -->
+    <div id="action-bar">
+
+      <!-- WAITING FOR ROUND -->
+      <div id="panel-waiting" class="action-panel hidden">
+        <span class="panel-msg">Waiting for host to start the round...</span>
+      </div>
+
+      <!-- BETTING PANEL -->
+      <div id="panel-bet" class="action-panel hidden">
+        <div class="chip-row" id="chip-row"></div>
+        <div class="bet-info">
+          <span class="bet-label">Your Bet:</span>
+          <span id="bet-amount" class="bet-value">$0</span>
+          <button id="btn-clear-bet" class="btn-ghost small">✕ Clear</button>
+        </div>
+        <button id="btn-place-bet" class="btn-primary">Place Bet</button>
+        <div id="bet-timer-display" class="timer-display"></div>
+      </div>
+
+      <!-- PLAY PANEL -->
+      <div id="panel-play" class="action-panel hidden">
+        <div id="your-turn-label" class="your-turn">YOUR TURN</div>
+        <div class="play-buttons">
+          <button id="btn-hit"       class="play-btn">Hit</button>
+          <button id="btn-stand"     class="play-btn">Stand</button>
+          <button id="btn-double"    class="play-btn">Double</button>
+          <button id="btn-split"     class="play-btn">Split</button>
+          <button id="btn-surrender" class="play-btn">Surrender</button>
+        </div>
+      </div>
+
+      <!-- INSURANCE PANEL -->
+      <div id="panel-insurance" class="action-panel hidden">
+        <span class="panel-msg gold">Dealer shows Ace — take Insurance? (costs half your bet)</span>
+        <div class="ins-buttons">
+          <button id="btn-ins-yes"  class="btn-primary">Take Insurance</button>
+          <button id="btn-ins-no"   class="btn-ghost">No Thanks</button>
+        </div>
+        <div id="ins-timer-display" class="timer-display"></div>
+      </div>
+
+      <!-- WAITING YOUR TURN -->
+      <div id="panel-watching" class="action-panel hidden">
+        <span class="panel-msg dim" id="watching-msg">Waiting for other players...</span>
+      </div>
+
+      <!-- PAYOUT PANEL -->
+      <div id="panel-payout" class="action-panel hidden">
+        <span class="panel-msg" id="payout-msg"></span>
+      </div>
+
+      <!-- HOST CONTROLS -->
+      <div id="host-controls" class="hidden">
+        <button id="btn-start" class="btn-primary">▶ Start Round</button>
+      </div>
+
+    </div>
+
+    <!-- SIDEBAR: PLAYERS LIST -->
+    <div id="sidebar">
+      <div class="sidebar-title">PLAYERS</div>
+      <div id="players-list"></div>
+    </div>
+
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="game.js"></script>
+</body>
+</html>
