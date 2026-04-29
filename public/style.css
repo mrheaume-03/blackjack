@@ -45,13 +45,14 @@ body {
   border: 1px solid var(--red);
   background: var(--surface);
   box-shadow: 0 0 60px var(--red-glow), inset 0 0 30px rgba(0,0,0,0.4);
-  max-width: 360px;
+  max-width: 420px;
   width: 90%;
 }
 
 .join-suits {
   font-size: 1.4rem;
   letter-spacing: 0.5em;
+  padding-left: 0.5em;
   color: var(--dim);
   margin-bottom: 1rem;
 }
@@ -59,7 +60,8 @@ body {
 
 .join-box h1 {
   font-size: 3rem;
-  letter-spacing: 0.4em;
+  letter-spacing: 0.15em;
+  padding-left: 0.15em;
   color: var(--text);
   text-shadow: 0 0 30px var(--red-glow);
   margin-bottom: 2rem;
