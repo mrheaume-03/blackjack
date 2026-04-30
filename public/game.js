@@ -7,6 +7,8 @@ let state     = null;
 let pendingBet = 0;
 let betTimerEnd = 0;
 let betTimerInterval = null;
+let isInitialRender = false;
+let balanceTargetId = null;
 
 // ─── Connection & Identity ────────────────────────────────────────────────────
 
@@ -14,6 +16,7 @@ socket.on('me', ({ id, isHost, role }) => {
   myId   = id;
   amHost = isHost;
   myRole = role;
+  isInitialRender = true;
   el('join-screen').classList.add('hidden');
   el('game-screen').classList.remove('hidden');
   applyHostUI();
@@ -60,6 +63,56 @@ el('btn-players-close').addEventListener('click', () => {
   el('players-overlay').classList.add('hidden');
 });
 
+// Delegated click for Balance buttons inside the overlay (innerHTML copy has no listeners)
+el('players-overlay-list').addEventListener('click', e => {
+  if (!amHost) return;
+  const btn = e.target.closest('[data-balance-id]');
+  if (btn) {
+    el('players-overlay').classList.add('hidden');
+    openBalanceModal(btn.dataset.balanceId);
+  }
+});
+
+// ─── Balance Modal ────────────────────────────────────────────────────────────
+
+function openBalanceModal(playerId) {
+  if (!state) return;
+  const p = state.players.find(p => p.id === playerId);
+  if (!p) return;
+  balanceTargetId = playerId;
+  el('balance-player-name').textContent = p.name;
+  el('balance-current').textContent = `Current balance: $${p.chips.toLocaleString()}`;
+  el('balance-amount').value = '';
+  el('balance-modal').classList.remove('hidden');
+  setTimeout(() => el('balance-amount').focus(), 50);
+}
+
+el('btn-balance-add').addEventListener('click', () => {
+  const amt = parseInt(el('balance-amount').value);
+  if (!amt || amt <= 0 || !balanceTargetId) return;
+  socket.emit('adjust-balance', { id: balanceTargetId, amount: amt });
+  el('balance-modal').classList.add('hidden');
+});
+
+el('btn-balance-remove').addEventListener('click', () => {
+  const amt = parseInt(el('balance-amount').value);
+  if (!amt || amt <= 0 || !balanceTargetId) return;
+  socket.emit('adjust-balance', { id: balanceTargetId, amount: -amt });
+  el('balance-modal').classList.add('hidden');
+});
+
+el('btn-balance-close').addEventListener('click', () => {
+  el('balance-modal').classList.add('hidden');
+});
+
+el('balance-modal').addEventListener('click', e => {
+  if (e.target === el('balance-modal')) el('balance-modal').classList.add('hidden');
+});
+
+el('balance-amount').addEventListener('keydown', e => {
+  if (e.key === 'Enter') el('btn-balance-add').click();
+});
+
 // ─── Join ─────────────────────────────────────────────────────────────────────
 
 function updateDealerButton(s) {
@@ -103,6 +156,7 @@ function render() {
   renderActionBar();
   renderSidebar();
   if (amHost) syncRulesPanel();
+  isInitialRender = false;
 }
 
 function renderHeader() {
@@ -125,9 +179,7 @@ function renderHeader() {
 // ─── Dealer ───────────────────────────────────────────────────────────────────
 
 function renderDealer() {
-  const row = el('dealer-cards');
-  row.innerHTML = '';
-  for (const card of state.dealer.cards) row.appendChild(makeCard(card));
+  syncCardRow(el('dealer-cards'), state.dealer.cards);
 
   const totalEl = el('dealer-total');
   if (state.dealer.total !== null) {
@@ -143,19 +195,210 @@ function renderDealer() {
 
 function renderPlayers() {
   const row = el('players-row');
-  row.innerHTML = '';
-  // Only render non-dealer players in the seats row
+  const existing = {};
+  for (const s of row.querySelectorAll('.seat[data-player-id]')) {
+    existing[s.dataset.playerId] = s;
+  }
+  const seen = new Set();
   for (let i = 0; i < state.players.length; i++) {
     const p = state.players[i];
     if (p.role === 'dealer') continue;
-    const isMe     = p.id === myId;
+    seen.add(p.id);
+    const isMe = p.id === myId;
     const isActive = i === state.activeIdx;
-    row.appendChild(buildSeat(p, isMe, isActive));
+    if (existing[p.id]) {
+      updateSeat(existing[p.id], p, isMe, isActive);
+    } else {
+      row.appendChild(buildSeat(p, isMe, isActive));
+    }
   }
+  for (const id in existing) {
+    if (!seen.has(id)) existing[id].remove();
+  }
+}
+
+function updateSeat(seatEl, p, isMe, isActive) {
+  seatEl.classList.toggle('active', isActive);
+  seatEl.classList.toggle('inactive', !p.connected);
+
+  const nameEl = seatEl.querySelector('.seat-name');
+  if (nameEl) nameEl.classList.toggle('me-label', isMe);
+
+  const chipsEl = seatEl.querySelector('.seat-chips');
+  if (chipsEl) chipsEl.textContent = `$${p.chips.toLocaleString()}`;
+
+  const badge = seatEl.querySelector('.disconnected-badge');
+  if (!p.connected && !badge) {
+    const b = div('disconnected-badge');
+    b.textContent = 'disconnected';
+    seatEl.querySelector('.seat-chips').after(b);
+  } else if (p.connected && badge) {
+    badge.remove();
+  }
+
+  syncSeatHands(seatEl, p, isActive);
+}
+
+function syncSeatHands(seatEl, p, isActive) {
+  let handsDiv = seatEl.querySelector('.seat-hands');
+  let betWaiting = seatEl.querySelector('.bet-waiting');
+
+  if (!p.hands || p.hands.length === 0) {
+    if (handsDiv) handsDiv.remove();
+    if (state.phase === 'betting') {
+      const msg = p.chips < state.rules.minBet ? 'Awaiting chips from dealer' : 'Waiting to bet...';
+      if (!betWaiting) {
+        betWaiting = div('bet-waiting');
+        seatEl.appendChild(betWaiting);
+      }
+      betWaiting.textContent = msg;
+    } else if (betWaiting) {
+      betWaiting.remove();
+    }
+    return;
+  }
+
+  if (betWaiting) betWaiting.remove();
+  if (!handsDiv) {
+    handsDiv = div('seat-hands');
+    seatEl.appendChild(handsDiv);
+  }
+
+  const blocks = handsDiv.querySelectorAll('.hand-block');
+  for (let hi = 0; hi < p.hands.length; hi++) {
+    const isActiveHand = isActive && hi === p.curHand;
+    if (hi < blocks.length) {
+      updateHandBlock(blocks[hi], p.hands[hi], isActiveHand);
+    } else {
+      handsDiv.appendChild(buildHandBlock(p.hands[hi], isActiveHand));
+    }
+  }
+  for (let hi = p.hands.length; hi < blocks.length; hi++) {
+    blocks[hi].remove();
+  }
+}
+
+function updateHandBlock(blockEl, hand, isActiveHand) {
+  blockEl.classList.toggle('active-hand', isActiveHand);
+
+  const cardRow = blockEl.querySelector('.card-row');
+  syncCardRow(cardRow, hand.cards);
+
+  if (hand.cards.length > 0) {
+    let betDiv = blockEl.querySelector('.hand-bet');
+    if (!betDiv) {
+      betDiv = div('hand-bet');
+      cardRow.after(betDiv);
+    }
+    betDiv.textContent = `Bet: $${hand.bet}${hand.doubled ? ' (2×)' : ''}${hand.insured ? ` + ins $${hand.insured}` : ''}`;
+
+    const showTotal = hand.status !== 'blackjack' && hand.status !== 'surrendered';
+    let totDiv = blockEl.querySelector('.hand-total');
+    if (showTotal) {
+      if (!totDiv) {
+        totDiv = div('hand-total');
+        betDiv.after(totDiv);
+      }
+      const t = clientTotal(hand.cards);
+      totDiv.textContent = t > 21 ? `${t} — BUST` : t;
+      totDiv.style.color = t > 21 ? 'var(--red)' : '';
+    } else if (totDiv) {
+      totDiv.remove();
+    }
+  }
+
+  const resultText = getResultText(hand);
+  let rd = blockEl.querySelector('.hand-result');
+  if (resultText) {
+    if (!rd) {
+      rd = div('hand-result');
+      blockEl.appendChild(rd);
+    }
+    rd.className = 'hand-result ' + getResultClass(hand);
+    rd.textContent = resultText;
+  } else if (rd) {
+    rd.remove();
+  }
+}
+
+function syncCardRow(rowEl, stateCards) {
+  const domCards = Array.from(rowEl.children);
+
+  // New round: state has fewer cards than DOM — clear
+  if (domCards.length > stateCards.length) {
+    rowEl.innerHTML = '';
+    return;
+  }
+
+  // Check existing cards: flip if hidden→revealed, or replace if card changed (split)
+  for (let i = 0; i < domCards.length; i++) {
+    const dom = domCards[i];
+    const s = stateCards[i];
+    if (dom.classList.contains('card-back') && !s.hidden) {
+      revealCard(dom, s);
+    } else if (!s.hidden && !dom.classList.contains('card-back') &&
+               (dom.dataset.rank !== s.rank || dom.dataset.suit !== s.suit)) {
+      // Card position changed (e.g. after a split reshuffled the hand)
+      const fresh = makeCard(s);
+      dom.replaceWith(fresh);
+    }
+  }
+
+  // Append new cards with staggered animation
+  for (let i = domCards.length; i < stateCards.length; i++) {
+    const cardEl = makeCard(stateCards[i]);
+    const delay = (i - domCards.length) * 180;
+    if (isInitialRender) {
+      cardEl.style.animation = 'none';
+    } else if (delay > 0) {
+      cardEl.style.animationDelay = delay + 'ms';
+      setTimeout(() => playCardSound(), delay);
+    } else {
+      playCardSound();
+    }
+    rowEl.appendChild(cardEl);
+  }
+}
+
+function revealCard(domCard, cardData) {
+  domCard.classList.remove('card-back');
+  domCard.classList.add(cardData.red ? 'red' : 'black');
+  domCard.dataset.rank = cardData.rank;
+  domCard.dataset.suit = cardData.suit;
+  domCard.innerHTML = `<span class="c-top">${cardData.rank}</span><span class="c-suit">${cardData.suit}</span><span class="c-bot">${cardData.rank}</span>`;
+  domCard.style.animation = 'none';
+  domCard.offsetHeight; // force reflow to restart animation
+  domCard.style.animation = 'card-reveal 0.32s ease-out';
+  if (!isInitialRender) playCardSound();
+}
+
+function playCardSound() {
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return;
+    const ctx = new Ctx();
+    const dur = 0.055;
+    const buf = ctx.createBuffer(1, Math.ceil(ctx.sampleRate * dur), ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) {
+      d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / d.length, 1.5) * 0.38;
+    }
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    const filt = ctx.createBiquadFilter();
+    filt.type = 'bandpass';
+    filt.frequency.value = 2800;
+    filt.Q.value = 0.7;
+    src.connect(filt);
+    filt.connect(ctx.destination);
+    src.start();
+    src.onended = () => ctx.close();
+  } catch (e) {}
 }
 
 function buildSeat(p, isMe, isActive) {
   const seat = div('seat');
+  seat.dataset.playerId = p.id;
   if (isMe)     seat.classList.add('my-seat');
   if (isActive) seat.classList.add('active');
   if (!p.connected) seat.classList.add('inactive');
@@ -184,7 +427,7 @@ function buildSeat(p, isMe, isActive) {
     seat.appendChild(handsDiv);
   } else if (state.phase === 'betting') {
     const bw = div('bet-waiting');
-    bw.textContent = p.hands && p.hands.length ? '✓ Bet placed' : 'Waiting to bet...';
+    bw.textContent = p.chips < state.rules.minBet ? 'Awaiting chips from dealer' : 'Waiting to bet...';
     seat.appendChild(bw);
   }
 
@@ -252,6 +495,8 @@ function getResultClass(hand) {
 function makeCard(card) {
   const c = div('card');
   if (card.hidden) { c.classList.add('card-back'); return c; }
+  c.dataset.rank = card.rank;
+  c.dataset.suit = card.suit;
   c.classList.add(card.red ? 'red' : 'black');
   c.innerHTML = `<span class="c-top">${card.rank}</span><span class="c-suit">${card.suit}</span><span class="c-bot">${card.rank}</span>`;
   return c;
@@ -583,12 +828,17 @@ function renderSidebar() {
     }
 
     if (amHost && p.id !== myId && p.role !== 'dealer') {
+      nameSpan.style.cursor = 'pointer';
+      nameSpan.title = 'Manage balance';
+      nameSpan.addEventListener('click', () => openBalanceModal(p.id));
+
       const actions = div('pl-actions');
-      const rebuyBtn = document.createElement('button');
-      rebuyBtn.className = 'pl-btn';
-      rebuyBtn.textContent = '+ Rebuy';
-      rebuyBtn.addEventListener('click', () => socket.emit('rebuy', { id: p.id }));
-      actions.appendChild(rebuyBtn);
+      const balBtn = document.createElement('button');
+      balBtn.className = 'pl-btn';
+      balBtn.textContent = '$ Balance';
+      balBtn.dataset.balanceId = p.id;
+      balBtn.addEventListener('click', () => openBalanceModal(p.id));
+      actions.appendChild(balBtn);
 
       if (state.phase === 'waiting') {
         const kickBtn = document.createElement('button');

@@ -412,7 +412,7 @@ io.on('connection', socket => {
       id: socket.id,
       name: cleanName,
       role: cleanRole,
-      chips: cleanRole === 'dealer' ? 0 : game.rules.buyIn,
+      chips: 0,
       hands: [],
       curHand: 0,
       connected: true,
@@ -440,10 +440,12 @@ io.on('connection', socket => {
 
   socket.on('action', ({ action }) => playerAction(socket.id, action));
 
-  socket.on('rebuy', ({ id }) => {
+  socket.on('adjust-balance', ({ id, amount }) => {
     if (socket.id !== game.hostId) return;
     const p = game.players.find(p => p.id === id);
-    if (p && p.role !== 'dealer') { p.chips += game.rules.buyIn; emit(); }
+    if (!p || p.role === 'dealer') return;
+    p.chips = Math.max(0, p.chips + Math.round(Number(amount)));
+    emit();
   });
 
   socket.on('kick', ({ id }) => {

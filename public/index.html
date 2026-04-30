@@ -189,6 +189,24 @@
 
   </div>
 
+  <!-- BALANCE MODAL -->
+  <div id="balance-modal" class="modal-overlay hidden">
+    <div class="modal-box">
+      <div class="modal-title">Manage Balance</div>
+      <div id="balance-player-name"></div>
+      <div id="balance-current"></div>
+      <div class="balance-input-row">
+        <span class="balance-dollar">$</span>
+        <input type="number" id="balance-amount" min="1" max="999999" placeholder="Amount">
+      </div>
+      <div class="balance-actions">
+        <button id="btn-balance-add" class="btn-primary">+ Add</button>
+        <button id="btn-balance-remove" class="btn-ghost">− Remove</button>
+      </div>
+      <button id="btn-balance-close" class="btn-ghost small">Cancel</button>
+    </div>
+  </div>
+
   <!-- PLAYERS OVERLAY (mobile only) -->
   <div id="players-overlay" class="hidden">
     <div id="players-overlay-inner">
