@@ -454,13 +454,13 @@ body {
 .chip-row { display: flex; gap: 0.5rem; flex-wrap: wrap; }
 
 .chip {
-  width: 54px;
-  height: 54px;
+  width: 42px;
+  height: 42px;
   border-radius: 50%;
   border: 3px dashed rgba(0,0,0,0.2);
   background: #e0e0e0;
   color: #222;
-  font-size: 0.75rem;
+  font-size: 0.68rem;
   font-weight: bold;
   font-family: inherit;
   cursor: pointer;
@@ -621,6 +621,64 @@ body {
   letter-spacing: 0.05em;
 }
 
+/* ─── History Modal ─────────────────────────────────────────────────────────── */
+.modal-wide { max-width: 480px; }
+
+.history-list {
+  max-height: 60vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  -webkit-overflow-scrolling: touch;
+}
+
+.history-empty { color: var(--dim); font-size: 0.85rem; text-align: center; padding: 1rem 0; }
+
+.history-entry {
+  border: 1px solid var(--border);
+  padding: 0.6rem 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.history-top {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  font-size: 0.8rem;
+}
+
+.history-num { color: var(--dim); font-size: 0.7rem; min-width: 2.5ch; }
+.history-bet { color: var(--text); }
+.history-wl  { font-weight: bold; margin-left: auto; }
+.history-wl.win  { color: #4caf50; }
+.history-wl.lose { color: var(--red); }
+.history-wl.push { color: var(--dim); }
+
+.history-cards { display: flex; flex-direction: column; gap: 0.2rem; }
+
+.history-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.78rem;
+}
+
+.history-label {
+  color: var(--dim);
+  min-width: 3.5ch;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.history-card-list {
+  color: var(--text);
+  letter-spacing: 0.04em;
+}
+
 #balance-current {
   font-size: 0.85rem;
   color: var(--dim);
@@ -704,7 +762,7 @@ body {
   }
 
   /* ── Chips ── */
-  .chip { width: 46px; height: 46px; font-size: 0.7rem; }
+  .chip { width: 36px; height: 36px; font-size: 0.62rem; }
   .chip-row { justify-content: center; }
 
   /* ── Bet info ── */

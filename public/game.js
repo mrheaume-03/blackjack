@@ -9,6 +9,8 @@ let betTimerEnd = 0;
 let betTimerInterval = null;
 let isInitialRender = false;
 let balanceTargetId = null;
+let handHistory = [];
+let payoutCaptured = false;
 
 // ─── Connection & Identity ────────────────────────────────────────────────────
 
@@ -47,6 +49,8 @@ socket.on('reset', () => {
   state = null;
   pendingBet = 0;
   betTimerEnd = 0;
+  handHistory = [];
+  payoutCaptured = false;
   stopBetTimer();
   el('game-screen').classList.add('hidden');
   el('join-screen').classList.remove('hidden');
@@ -144,12 +148,20 @@ function doJoin(role) {
 function applyHostUI() {
   el('rules-btn').classList.toggle('hidden', !amHost);
   el('host-controls').classList.toggle('hidden', !amHost);
+  el('btn-history').classList.toggle('hidden', myRole !== 'player');
 }
 
 // ─── Render ───────────────────────────────────────────────────────────────────
 
 function render() {
   if (!state) return;
+  if (state.phase === 'payout' && !payoutCaptured) {
+    captureHandHistory();
+    payoutCaptured = true;
+  }
+  if (state.phase === 'betting' || state.phase === 'waiting') {
+    payoutCaptured = false;
+  }
   renderHeader();
   renderDealer();
   renderPlayers();
@@ -377,22 +389,39 @@ function playCardSound() {
     const Ctx = window.AudioContext || window.webkitAudioContext;
     if (!Ctx) return;
     const ctx = new Ctx();
-    const dur = 0.055;
-    const buf = ctx.createBuffer(1, Math.ceil(ctx.sampleRate * dur), ctx.sampleRate);
+    const now = ctx.currentTime;
+    const master = ctx.createGain();
+    master.gain.value = 0.45;
+    master.connect(ctx.destination);
+
+    // Low thump: sine sweep 130→35 Hz, mimics card hitting felt
+    const osc = ctx.createOscillator();
+    const oscEnv = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(130, now);
+    osc.frequency.exponentialRampToValueAtTime(35, now + 0.09);
+    oscEnv.gain.setValueAtTime(1.0, now);
+    oscEnv.gain.exponentialRampToValueAtTime(0.001, now + 0.09);
+    osc.connect(oscEnv); oscEnv.connect(master);
+    osc.start(now); osc.stop(now + 0.1);
+
+    // Snap: noise burst through lowpass ~900 Hz, fast decay
+    const snapDur = 0.045;
+    const buf = ctx.createBuffer(1, Math.ceil(ctx.sampleRate * snapDur), ctx.sampleRate);
     const d = buf.getChannelData(0);
     for (let i = 0; i < d.length; i++) {
-      d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / d.length, 1.5) * 0.38;
+      d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / d.length, 2.5);
     }
-    const src = ctx.createBufferSource();
-    src.buffer = buf;
-    const filt = ctx.createBiquadFilter();
-    filt.type = 'bandpass';
-    filt.frequency.value = 2800;
-    filt.Q.value = 0.7;
-    src.connect(filt);
-    filt.connect(ctx.destination);
-    src.start();
-    src.onended = () => ctx.close();
+    const snap = ctx.createBufferSource();
+    snap.buffer = buf;
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = 900;
+    const snapEnv = ctx.createGain();
+    snapEnv.gain.value = 0.55;
+    snap.connect(lp); lp.connect(snapEnv); snapEnv.connect(master);
+    snap.start(now);
+    snap.onended = () => ctx.close();
   } catch (e) {}
 }
 
@@ -688,7 +717,8 @@ function renderPlayPanel(me) {
 
   const canSurrender = state.rules.surrender !== 'none' && twoCards && !h.split;
 
-  el('btn-double').disabled    = !canDouble;
+  el('btn-double-up').disabled = !canDouble;
+  el('btn-double-dn').disabled = !canDouble;
   el('btn-split').disabled     = !canSplit;
   el('btn-surrender').disabled = !canSurrender;
 }
@@ -721,13 +751,89 @@ function renderPayoutMsg(me) {
   el('payout-msg').textContent = parts.join('   |   ');
 }
 
+// ─── Hand History ─────────────────────────────────────────────────────────────
+
+function captureHandHistory() {
+  if (!myId || !state) return;
+  const me = state.players.find(p => p.id === myId);
+  if (!me || !me.hands || !me.hands.length) return;
+  for (const hand of me.hands) {
+    if (!hand.result) continue;
+    let winLoss = 0;
+    if (hand.result === 'win')       winLoss = hand.bet;
+    else if (hand.result === 'blackjack') winLoss = hand.bet * (state.rules.blackjackPayout === '3:2' ? 1.5 : 1.2);
+    else if (hand.result === 'push') winLoss = 0;
+    else if (hand.result === 'lose') winLoss = -hand.bet;
+    else if (hand.result === 'surrender') winLoss = -(hand.bet / 2);
+    handHistory.push({
+      num: handHistory.length + 1,
+      bet: hand.bet,
+      result: hand.result,
+      winLoss,
+      playerCards: hand.cards.slice(),
+      dealerCards: state.dealer.cards.slice(),
+    });
+  }
+}
+
+function cardLabel(c) {
+  if (c.hidden) return '?';
+  return c.rank + c.suit;
+}
+
+function openHistoryModal() {
+  const list = el('history-list');
+  list.innerHTML = '';
+  if (!handHistory.length) {
+    const empty = div('history-empty');
+    empty.textContent = 'No hands played yet this session.';
+    list.appendChild(empty);
+  } else {
+    for (let i = handHistory.length - 1; i >= 0; i--) {
+      const h = handHistory[i];
+      const entry = div('history-entry');
+
+      const top = div('history-top');
+      const numEl = document.createElement('span');
+      numEl.className = 'history-num';
+      numEl.textContent = `#${h.num}`;
+      const betEl = document.createElement('span');
+      betEl.className = 'history-bet';
+      betEl.textContent = `Bet ${formatMoney(h.bet)}`;
+      const wlEl = document.createElement('span');
+      wlEl.className = 'history-wl ' + (h.winLoss > 0 ? 'win' : h.winLoss < 0 ? 'lose' : 'push');
+      wlEl.textContent = h.winLoss > 0 ? `+${formatMoney(h.winLoss)}` : h.winLoss < 0 ? formatMoney(h.winLoss) : 'Push';
+      top.appendChild(numEl); top.appendChild(betEl); top.appendChild(wlEl);
+      entry.appendChild(top);
+
+      const cards = div('history-cards');
+      const pRow = div('history-row');
+      pRow.innerHTML = `<span class="history-label">You</span><span class="history-card-list">${h.playerCards.map(cardLabel).join(' ')}</span>`;
+      const dRow = div('history-row');
+      dRow.innerHTML = `<span class="history-label">Dealer</span><span class="history-card-list">${h.dealerCards.map(cardLabel).join(' ')}</span>`;
+      cards.appendChild(pRow); cards.appendChild(dRow);
+      entry.appendChild(cards);
+
+      list.appendChild(entry);
+    }
+  }
+  el('history-modal').classList.remove('hidden');
+}
+
+el('btn-history').addEventListener('click', openHistoryModal);
+el('btn-history-close').addEventListener('click', () => el('history-modal').classList.add('hidden'));
+el('history-modal').addEventListener('click', e => {
+  if (e.target === el('history-modal')) el('history-modal').classList.add('hidden');
+});
+
 // ─── Play Button Events ───────────────────────────────────────────────────────
 
-el('btn-hit').addEventListener('click',       () => socket.emit('action', { action: 'hit' }));
-el('btn-stand').addEventListener('click',     () => socket.emit('action', { action: 'stand' }));
-el('btn-double').addEventListener('click',    () => socket.emit('action', { action: 'double' }));
-el('btn-split').addEventListener('click',     () => socket.emit('action', { action: 'split' }));
-el('btn-surrender').addEventListener('click', () => socket.emit('action', { action: 'surrender' }));
+el('btn-hit').addEventListener('click',        () => socket.emit('action', { action: 'hit' }));
+el('btn-stand').addEventListener('click',      () => socket.emit('action', { action: 'stand' }));
+el('btn-double-up').addEventListener('click',  () => socket.emit('action', { action: 'double', faceDown: false }));
+el('btn-double-dn').addEventListener('click',  () => socket.emit('action', { action: 'double', faceDown: true }));
+el('btn-split').addEventListener('click',      () => socket.emit('action', { action: 'split' }));
+el('btn-surrender').addEventListener('click',  () => socket.emit('action', { action: 'surrender' }));
 
 el('btn-ins-yes').addEventListener('click', () => socket.emit('action', { action: 'insurance' }));
 el('btn-ins-no').addEventListener('click',  () => socket.emit('action', { action: 'no-insurance' }));

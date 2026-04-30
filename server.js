@@ -99,7 +99,15 @@ function publicState() {
   return {
     phase: game.phase,
     rules: game.rules,
-    players: game.players.map(p => ({ ...p })),
+    players: game.players.map(p => ({
+      ...p,
+      hands: p.hands.map(h => ({
+        ...h,
+        cards: h.cards.map(c =>
+          c.faceDown && game.phase !== 'payout' ? { hidden: true } : c
+        ),
+      })),
+    })),
     dealer: {
       cards: game.dealer.revealed
         ? game.dealer.cards
@@ -320,7 +328,7 @@ function canSplit(h, p) {
   return rankVal(h.cards[0].rank) === rankVal(h.cards[1].rank);
 }
 
-function playerAction(id, action) {
+function playerAction(id, action, faceDown = false) {
   const p = game.players.find(p => p.id === id);
   if (!p || p.role === 'dealer') return;
 
@@ -356,8 +364,11 @@ function playerAction(id, action) {
     case 'double': {
       if (!canDouble(h, p)) return;
       p.chips -= h.bet; h.bet *= 2; h.doubled = true;
-      h.cards.push(draw());
-      h.status = handTotal(h.cards) > 21 ? 'bust' : 'stood';
+      const newCard = draw();
+      const bust = handTotal([...h.cards, newCard]) > 21;
+      if (!bust && faceDown) newCard.faceDown = true;
+      h.cards.push(newCard);
+      h.status = bust ? 'bust' : 'stood';
       emit(); advanceTurn(); break;
     }
     case 'split': {
@@ -455,7 +466,7 @@ io.on('connection', socket => {
     if (game.phase === 'betting') doPlaceBet(socket.id, amount);
   });
 
-  socket.on('action', ({ action }) => playerAction(socket.id, action));
+  socket.on('action', ({ action, faceDown }) => playerAction(socket.id, action, faceDown));
 
   socket.on('adjust-balance', ({ id, amount }) => {
     if (socket.id !== game.hostId) return;
