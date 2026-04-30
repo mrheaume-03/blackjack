@@ -51,6 +51,15 @@ socket.on('reset', () => {
   el('name-input').value = '';
 });
 
+// ─── Players Overlay (mobile) ────────────────────────────────────────────────
+
+el('btn-players').addEventListener('click', () => {
+  el('players-overlay').classList.remove('hidden');
+});
+el('btn-players-close').addEventListener('click', () => {
+  el('players-overlay').classList.add('hidden');
+});
+
 // ─── Join ─────────────────────────────────────────────────────────────────────
 
 function updateDealerButton(s) {
@@ -595,6 +604,9 @@ function renderSidebar() {
 
     list.appendChild(item);
   }
+
+  const overlayList = el('players-overlay-list');
+  if (overlayList) overlayList.innerHTML = list.innerHTML;
 }
 
 // ─── Toast ────────────────────────────────────────────────────────────────────

@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
   <title>Blackjack</title>
   <link rel="stylesheet" href="style.css">
 </head>
@@ -32,6 +32,7 @@
         <span id="shoe-display"></span>
       </div>
       <div id="header-right">
+        <button id="btn-players" class="btn-ghost small">Players</button>
         <button id="rules-btn" class="btn-ghost small">⚙ Rules</button>
       </div>
     </header>
@@ -186,6 +187,17 @@
       <div id="players-list"></div>
     </div>
 
+  </div>
+
+  <!-- PLAYERS OVERLAY (mobile only) -->
+  <div id="players-overlay" class="hidden">
+    <div id="players-overlay-inner">
+      <div id="players-overlay-header">
+        <span>PLAYERS</span>
+        <button id="btn-players-close" class="btn-ghost small">✕ Close</button>
+      </div>
+      <div id="players-overlay-list"></div>
+    </div>
   </div>
 
   <script src="/socket.io/socket.io.js"></script>
