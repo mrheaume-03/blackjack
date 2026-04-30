@@ -8,68 +8,109 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 npm start          # starts server on http://localhost:3000
 ```
 
-No build step, no linter, no test suite. There is only one script. Open `http://localhost:3000` in multiple browser tabs to simulate multiple players.
+No build step, no linter, no test suite. Open `http://localhost:3000` in multiple browser tabs to simulate multiple players (one as dealer, others as players).
 
 ## Architecture
 
-Single-file Node.js server (`server.js`) backed by an in-memory game object. No database. The entire game state is one `game` object that lives for the lifetime of the process — restarting the server resets all state.
+Single-file Node.js server (`server.js`) backed by one in-memory `game` object. No database — restarting the server resets all state.
 
-**State flow:** every mutation to `game` ends with a call to `emit()`, which broadcasts the full `publicState()` snapshot to all connected clients via Socket.io. Clients are purely reactive — they render whatever state they receive.
+**State flow:** every mutation ends with `emit()`, which broadcasts the full `publicState()` snapshot to all connected clients via Socket.io. Clients are purely reactive — they render whatever state they receive and never hold authoritative state.
 
 ### Server (`server.js`)
 
-- **`game` object** — single source of truth: `phase`, `players[]`, `dealer`, `shoe`, `rules`, `hostId`, `dealerPresent`
-- **`publicState()`** — scrubs the dealer's hole card before sending to clients (`{ hidden: true }` when not revealed)
-- **`game.rules`** — all configurable table settings; only the host/dealer can change them via `set-rules` socket event, and only when `phase === 'waiting'`
-- **`game.players[]`** — includes both `role: 'dealer'` and `role: 'player'` entries. The dealer player has no `hands` and is filtered out of all betting/dealing/action loops
-- **`game.hostId`** — always points to the dealer's socket id; falls back to a regular player if the dealer disconnects
+**`game` object** — single source of truth:
+- `phase` — `'waiting' | 'betting' | 'playing' | 'dealer' | 'payout'`
+- `players[]` — includes both `role: 'dealer'` and `role: 'player'` entries; dealer entries have no `hands` and are filtered from all betting/dealing/action loops
+- `dealer` — `{ cards[], revealed: bool }`
+- `rules` — copy of `DEFAULT_RULES`, host-configurable via `set-rules`
+- `hostId` — dealer's socket id; falls back to a regular player on dealer disconnect
+- `activeIdx` — index into `players[]` of whose turn it is (`-1` when no active turn)
 
-Game phases cycle: `waiting → betting → playing → dealer → payout → (back to betting)`
+**`publicState()`** scrubs two categories of hidden cards before broadcasting:
+1. Dealer hole card (`cards[1]`) → `{ hidden: true }` until `game.dealer.revealed = true`
+2. Player face-down doubled cards (`.faceDown = true` on the card object) → `{ hidden: true }` until `phase === 'payout'`
 
-Key functions: `beginBetting`, `beginDealing`, `advanceTurn`, `dealerPlay`, `payout`, `nextRound`. `advanceTurn` is the main turn-sequencing function — it walks `game.players` by index, skipping dealer-role players.
+**Game flow functions:**
+- `beginBetting` → `beginDealing` (async, 600ms between each card) → `checkDealerBJ` → `advanceTurn` → `dealerPlay` → `payout` → `nextRound`
+- `beginDealing` is `async` and deals one card at a time with `await sleep(600)` between each card, in casino order: P1↑, P2↑…, Dealer↑ (up card = index 0), P1↑, P2↑…, Dealer↓ (hole card = index 1, hidden)
+- `advanceTurn` is the turn sequencer. After all players finish, it checks whether any player has a live standing hand before calling `dealerPlay`. If all hands are bust/surrendered/blackjack, it calls `payout()` directly — the dealer's hole card is never revealed
+- Disconnected players are auto-stood when it's their turn so the game doesn't stall
 
-**Balance system:** Players join with `chips: 0`. The dealer uses the `adjust-balance` socket event to add or remove chips from any player at any time. The `start` handler silently no-ops if no player has `chips >= minBet`.
+**Hand object:** `{ cards[], bet, status, doubled, split, insured, insDecided, result }`
+- `status`: `'active' | 'stood' | 'bust' | 'surrendered' | 'blackjack'`
+- `result`: set at payout — `'win' | 'lose' | 'push' | 'blackjack' | 'surrender'`
+
+**Double face-down:** `playerAction` accepts a `faceDown` boolean. When true and the hand doesn't bust, the drawn card gets `.faceDown = true`. It stays hidden in `publicState` until payout, then flips with the existing `card-reveal` animation.
+
+**Split aces:** Default `hitSplitAces: true` — after splitting aces, each hand gets one card automatically (dealt in the split action) and the player can then hit/stand/double freely. Re-splitting is prevented by `maxSplitHands: 2` combined with `canSplit` requiring exactly 2 cards. When `hitSplitAces: false` (standard casino rule), hand 0 auto-stands immediately and subsequent split-ace hands also auto-stand without any extra card.
 
 ### Frontend (`public/`)
 
-- **`game.js`** — one `socket.on('state', render)` listener drives everything. `render()` calls sub-renderers for header, dealer area, player seats, action bar, and sidebar
-- **`myId` / `amHost` / `myRole`** — three module-level variables set once on the `me` socket event; `isInitialRender` flag suppresses card animations on first render after joining
-- **Action bar panels** are mutually exclusive divs toggled via `showPanel` / `hideAllPanels` based on `state.phase` and whether it's the current player's turn
-- Dealer-role clients skip all action-bar panels (betting, playing, payout) and only see the host controls (`#host-controls`)
-- The join screen receives a `state` broadcast immediately on socket connect (before `join` is emitted) — this is how the "Dealer Seat Taken" button state is set before the user types a name
+**`game.js`** — `socket.on('state', render)` drives everything. Module-level variables:
+- `myId`, `amHost`, `myRole` — set once on `me` event
+- `isInitialRender` — suppresses card animations on first render after joining
+- `pendingBet` — client-side bet accumulator, cleared on place/reset
+- `handHistory[]` — session-long array of completed hands (bet, result, cards); captured once per payout phase via `payoutCaptured` flag
+- `CHIP_COLORS[]` — 6-entry array assigning colors by chip position (white/slate/red/green/blue/purple), applied inline so denominations can be anything
 
-**Incremental card rendering:** Player seats and dealer cards are updated in-place rather than cleared and rebuilt on every state update. `renderPlayers()` matches existing `.seat[data-player-id]` DOM nodes to state players and calls `updateSeat()` for existing seats or `buildSeat()` for new ones. `syncCardRow()` appends only new cards (with flip animation + sound), handles hidden→revealed flips via `revealCard()`, and detects card replacement due to splits by comparing `data-rank`/`data-suit` attributes.
+**Action bar** — mutually exclusive panels toggled by `showPanel`/`hideAllPanels`. Panel shown depends on `state.phase` + whether it's the current player's turn. Dealer-role clients see only `#host-controls`.
 
-**Card animation:** `card-deal` keyframe does a rotateY flip-in (0.4s, `animation-fill-mode: both` so cards are invisible during stagger delay). `card-reveal` keyframe handles the dealer hole card flip. `playCardSound()` generates a synthetic snap via Web Audio API (bandpass-filtered noise burst, no audio files needed).
+**Chip denominations** — `state.rules.chipDenominations` (array of numbers, configurable by host). Colors assigned positionally via `CHIP_COLORS`. Bet amounts support decimals (50¢ chips, etc.) — no `Math.floor` on bet arithmetic.
 
-**Balance modal:** `openBalanceModal(playerId)` populates and shows `#balance-modal`. The overlay player list (`#players-overlay-list`) is an `innerHTML` copy of the sidebar with no event listeners — it uses delegated click on `[data-balance-id]` attributes instead.
+**Incremental card rendering** — `syncCardRow()` diffs DOM vs state card arrays:
+- More DOM cards than state → clear (new round)
+- Hidden card becomes revealed → `revealCard()` with `card-reveal` CSS animation
+- Card at same position changed rank/suit → replace (split reshuffled hand)
+- New cards appended with `card-deal` animation; stagger delay = `(i - domCards.length) * 180ms`
+
+**Card sound** — `playCardSound()` uses Web Audio API: a sine sweep (130→35 Hz, 90ms) mixed with lowpass-filtered noise (< 900 Hz, 45ms) for a felt-thump + snap. No audio files.
+
+**Hand history modal** — `captureHandHistory()` runs once when `state.phase` first becomes `'payout'` each round (guarded by `payoutCaptured` flag). Stores player cards, dealer cards, bet, and win/loss. Displayed newest-first in `#history-modal`. Dealer cards may show `?` for hidden hole card when everyone busted.
+
+**`formatMoney(n)`** — formats chip amounts: whole numbers as `$N`, decimals as `$N.NN`.
 
 ### Socket events (client → server)
 
 | Event | Payload | Description |
 |-------|---------|-------------|
-| `join` | `{ name, role }` | role is `'dealer'` or `'player'` |
+| `join` | `{ name, role }` | `role` is `'dealer'` or `'player'` |
 | `start` | — | host starts betting phase |
-| `bet` | `{ amount }` | place a bet during betting phase |
-| `action` | `{ action }` | `hit`, `stand`, `double`, `split`, `surrender`, `insurance`, `no-insurance` |
-| `set-rules` | rules object | host updates table rules (waiting phase only) |
-| `adjust-balance` | `{ id, amount }` | host adds (positive) or removes (negative) chips from a player |
+| `bet` | `{ amount }` | place bet during betting phase |
+| `action` | `{ action, faceDown? }` | `hit`, `stand`, `double` (+ optional `faceDown: true`), `split`, `surrender`, `insurance`, `no-insurance` |
+| `set-rules` | rules object | host updates table rules (waiting phase only); `chipDenominations` array validated server-side |
+| `adjust-balance` | `{ id, amount }` | host adds/removes chips from any player at any time |
 | `kick` | `{ id }` | host removes a player (waiting phase only) |
-| `reset-game` | — | host wipes all players and resets to clean state; server emits `reset` to all clients who return to join screen |
+| `reset-game` | — | wipes all players; server emits `reset` to all clients who return to join screen |
 
 ### Configurable rules (`DEFAULT_RULES`)
 
-`numDecks`, `dealerHitsSoft17`, `blackjackPayout` (`3:2`/`6:5`), `insurance`, `surrender` (`late`/`early`/`none`), `doubleOn` (`any`/`9-11`/`10-11`), `doubleAfterSplit`, `maxSplitHands` (integer — max hands per player from splitting), `hitSplitAces`, `minBet`, `maxBet`, `buyIn`, `maxPlayers`, `bettingTime`
+| Rule | Default | Notes |
+|------|---------|-------|
+| `numDecks` | 6 | |
+| `dealerHitsSoft17` | true | |
+| `blackjackPayout` | `'3:2'` | or `'6:5'` |
+| `insurance` | true | |
+| `surrender` | `'late'` | `'early'` or `'none'` |
+| `doubleOn` | `'any'` | `'9-11'` or `'10-11'` |
+| `doubleAfterSplit` | true | |
+| `maxSplitHands` | 2 | max hands per player from splitting |
+| `hitSplitAces` | true | false = standard one-card auto-stand |
+| `chipDenominations` | `[0.5, 1, 5]` | up to 8 values; sorted and validated server-side |
+| `minBet` | 0.5 | supports decimals |
+| `maxBet` | 20 | |
+| `buyIn` | 10 | |
+| `bettingTime` | 30 | seconds |
+| `maxPlayers` | 6 | |
 
 ### Mobile layout (`style.css`)
 
-`@media (max-width: 600px)` catches all portrait iPhones (≤430px wide). Key rules:
-- `height: 100svh` on `html/body`, `#game-screen`, `#join-screen` — fixes iOS Safari's `100vh` bug where browser toolbar clips content
-- `#action-bar` switches to `flex-direction: column` with `padding-bottom: max(0.6rem, env(safe-area-inset-bottom))` for iPhone home indicator
-- `.play-buttons` becomes a `3-column CSS grid` so all 5 action buttons fit in 2 rows
-- `#sidebar` is hidden; replaced by a `#btn-players` button that opens `#players-overlay` (slide-up sheet)
-- Viewport meta includes `viewport-fit=cover` to enable safe-area CSS
+`@media (max-width: 600px)` targets portrait phones:
+- `height: 100svh` on `html/body`, `#game-screen`, `#join-screen` — fixes iOS Safari `100vh` toolbar clip
+- `#action-bar` switches to `flex-direction: column` with `padding-bottom: max(0.6rem, env(safe-area-inset-bottom))`
+- `.play-buttons` becomes a 3-column CSS grid so all 6 action buttons (Hit, Stand, Dbl↑, Dbl↓, Split, Surrender) fit in 2 rows
+- `#sidebar` hidden; replaced by `#btn-players` opening `#players-overlay` (slide-up sheet)
+- Viewport meta includes `viewport-fit=cover` for safe-area CSS
 
 ## Deployment
 
-Hosted on Railway. The server reads `process.env.PORT` (falls back to 3000). No other environment variables are needed. Railway auto-detects Node.js via `package.json` and runs `npm start`. Push to `master` on GitHub to trigger a Railway redeploy.
+Hosted on Railway. Reads `process.env.PORT` (falls back to 3000). Railway auto-detects Node.js via `package.json` and runs `npm start`. Push to `master` on GitHub to trigger redeploy. Static assets (JS/CSS/HTML) are served with `Cache-Control: no-cache` so browsers always load the latest version after a redeploy.
