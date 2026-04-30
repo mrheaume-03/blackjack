@@ -470,8 +470,6 @@ body {
 .chip:hover   { transform: scale(1.12); box-shadow: 0 0 10px rgba(0,0,0,0.3); }
 .chip:disabled { background: #333; cursor: not-allowed; transform: none; border-color: #444; color: #555; }
 
-.chip.chip-1 { background: #546e7a; color: #fff; border-color: rgba(255,255,255,0.35); }
-.chip.chip-5 { background: var(--red); color: #fff; border-color: rgba(255,255,255,0.4); }
 
 .bet-info { display: flex; align-items: center; gap: 0.6rem; }
 .bet-label { font-size: 0.8rem; color: var(--dim); }

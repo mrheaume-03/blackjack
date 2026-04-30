@@ -626,15 +626,27 @@ function formatMoney(n) {
   return n % 1 === 0 ? `$${n.toLocaleString()}` : `$${n.toFixed(2)}`;
 }
 
+const CHIP_COLORS = [
+  { bg: '#e0e0e0', color: '#222',      border: 'rgba(0,0,0,0.2)' },
+  { bg: '#546e7a', color: '#fff',      border: 'rgba(255,255,255,0.35)' },
+  { bg: 'var(--red)', color: '#fff',   border: 'rgba(255,255,255,0.4)' },
+  { bg: '#2e7d32', color: '#fff',      border: 'rgba(255,255,255,0.35)' },
+  { bg: '#1565c0', color: '#fff',      border: 'rgba(255,255,255,0.35)' },
+  { bg: '#4a148c', color: '#fff',      border: 'rgba(255,255,255,0.35)' },
+];
+
 function renderBetPanel(me) {
   const chipRow = el('chip-row');
   chipRow.innerHTML = '';
-  const denominations = [0.5, 1, 5];
-  for (const val of denominations) {
+  const denominations = state.rules.chipDenominations || [0.5, 1, 5];
+  for (let i = 0; i < denominations.length; i++) {
+    const val = denominations[i];
     const btn = document.createElement('button');
     btn.className = 'chip';
-    if (val === 1) btn.classList.add('chip-1');
-    if (val === 5) btn.classList.add('chip-5');
+    const c = CHIP_COLORS[Math.min(i, CHIP_COLORS.length - 1)];
+    btn.style.background = c.bg;
+    btn.style.color = c.color;
+    btn.style.borderColor = c.border;
     btn.textContent = formatMoney(val);
     const would = pendingBet + val;
     btn.disabled = would > state.rules.maxBet || val > me.chips;
@@ -862,6 +874,7 @@ el('rules-save').addEventListener('click', () => {
     doubleAfterSplit:   el('r-das').checked,
     maxSplitHands:      parseInt(el('r-max-split-hands').value),
     hitSplitAces:       el('r-hsa').checked,
+    chipDenominations:  el('r-chips').value.split(',').map(v => parseFloat(v.trim())).filter(v => v > 0 && isFinite(v)),
     minBet:             parseFloat(el('r-min').value),
     maxBet:             parseFloat(el('r-max').value),
     buyIn:              parseFloat(el('r-buyin').value),
@@ -883,6 +896,7 @@ function syncRulesPanel() {
   setChk('r-das',             r.doubleAfterSplit);
   setVal('r-max-split-hands', r.maxSplitHands);
   setChk('r-hsa',             r.hitSplitAces);
+  setVal('r-chips',           (r.chipDenominations || [0.5, 1, 5]).join(', '));
   setVal('r-min',             r.minBet);
   setVal('r-max',             r.maxBet);
   setVal('r-buyin',           r.buyIn);

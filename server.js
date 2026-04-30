@@ -70,7 +70,8 @@ const DEFAULT_RULES = {
   doubleOn: 'any',
   doubleAfterSplit: true,
   maxSplitHands: 2,
-  hitSplitAces: false,
+  hitSplitAces: true,
+  chipDenominations: [0.5, 1, 5],
   minBet: 0.5,
   maxBet: 20,
   buyIn: 10,
@@ -214,8 +215,7 @@ function advanceTurn() {
       if (h.status === 'active') {
         curr.curHand = hi;
         if (!game.rules.hitSplitAces && h.split && h.cards[0].rank === 'A') {
-          h.cards.push(draw());
-          h.status = handTotal(h.cards) > 21 ? 'bust' : 'stood';
+          h.status = 'stood';
           emit();
           continue;
         }
@@ -380,7 +380,7 @@ function playerAction(id, action, faceDown = false) {
       nh.cards = [c2, draw()]; nh.split = true;
       p.hands.splice(p.curHand + 1, 0, nh);
       if (!game.rules.hitSplitAces && h.cards[0].rank === 'A') {
-        h.status = 'stood'; emit(); advanceTurn();
+        h.status = 'stood'; emit(); advanceTurn(); // standard: auto-stand split aces
       } else emit();
       break;
     }
@@ -452,7 +452,14 @@ io.on('connection', socket => {
 
   socket.on('set-rules', rules => {
     if (socket.id !== game.hostId || game.phase !== 'waiting') return;
-    game.rules = { ...DEFAULT_RULES, ...rules };
+    const merged = { ...DEFAULT_RULES, ...rules };
+    if (Array.isArray(rules.chipDenominations)) {
+      const cleaned = rules.chipDenominations
+        .map(Number).filter(v => v > 0 && isFinite(v))
+        .sort((a, b) => a - b).slice(0, 8);
+      merged.chipDenominations = cleaned.length ? cleaned : DEFAULT_RULES.chipDenominations;
+    }
+    game.rules = merged;
     emit();
   });
 
