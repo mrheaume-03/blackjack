@@ -457,9 +457,9 @@ body {
   width: 54px;
   height: 54px;
   border-radius: 50%;
-  border: 3px dashed rgba(255,255,255,0.4);
-  background: var(--red);
-  color: #fff;
+  border: 3px dashed rgba(0,0,0,0.2);
+  background: #e0e0e0;
+  color: #222;
   font-size: 0.75rem;
   font-weight: bold;
   font-family: inherit;
@@ -467,12 +467,11 @@ body {
   transition: transform 0.1s, box-shadow 0.15s;
   display: flex; align-items: center; justify-content: center;
 }
-.chip:hover   { transform: scale(1.12); box-shadow: 0 0 10px var(--red-glow); }
+.chip:hover   { transform: scale(1.12); box-shadow: 0 0 10px rgba(0,0,0,0.3); }
 .chip:disabled { background: #333; cursor: not-allowed; transform: none; border-color: #444; color: #555; }
 
-.chip.chip-25  { background: #2e7d32; border-color: rgba(255,255,255,0.35); }
-.chip.chip-100 { background: #1565c0; border-color: rgba(255,255,255,0.35); }
-.chip.chip-500 { background: #4a148c; border-color: rgba(255,255,255,0.35); }
+.chip.chip-1 { background: #546e7a; color: #fff; border-color: rgba(255,255,255,0.35); }
+.chip.chip-5 { background: var(--red); color: #fff; border-color: rgba(255,255,255,0.4); }
 
 .bet-info { display: flex; align-items: center; gap: 0.6rem; }
 .bet-label { font-size: 0.8rem; color: var(--dim); }

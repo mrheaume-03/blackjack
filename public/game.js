@@ -81,21 +81,21 @@ function openBalanceModal(playerId) {
   if (!p) return;
   balanceTargetId = playerId;
   el('balance-player-name').textContent = p.name;
-  el('balance-current').textContent = `Current balance: $${p.chips.toLocaleString()}`;
+  el('balance-current').textContent = `Current balance: ${formatMoney(p.chips)}`;
   el('balance-amount').value = '';
   el('balance-modal').classList.remove('hidden');
   setTimeout(() => el('balance-amount').focus(), 50);
 }
 
 el('btn-balance-add').addEventListener('click', () => {
-  const amt = parseInt(el('balance-amount').value);
+  const amt = parseFloat(el('balance-amount').value);
   if (!amt || amt <= 0 || !balanceTargetId) return;
   socket.emit('adjust-balance', { id: balanceTargetId, amount: amt });
   el('balance-modal').classList.add('hidden');
 });
 
 el('btn-balance-remove').addEventListener('click', () => {
-  const amt = parseInt(el('balance-amount').value);
+  const amt = parseFloat(el('balance-amount').value);
   if (!amt || amt <= 0 || !balanceTargetId) return;
   socket.emit('adjust-balance', { id: balanceTargetId, amount: -amt });
   el('balance-modal').classList.add('hidden');
@@ -225,7 +225,7 @@ function updateSeat(seatEl, p, isMe, isActive) {
   if (nameEl) nameEl.classList.toggle('me-label', isMe);
 
   const chipsEl = seatEl.querySelector('.seat-chips');
-  if (chipsEl) chipsEl.textContent = `$${p.chips.toLocaleString()}`;
+  if (chipsEl) chipsEl.textContent = formatMoney(p.chips);
 
   const badge = seatEl.querySelector('.disconnected-badge');
   if (!p.connected && !badge) {
@@ -290,7 +290,7 @@ function updateHandBlock(blockEl, hand, isActiveHand) {
       betDiv = div('hand-bet');
       cardRow.after(betDiv);
     }
-    betDiv.textContent = `Bet: $${hand.bet}${hand.doubled ? ' (2×)' : ''}${hand.insured ? ` + ins $${hand.insured}` : ''}`;
+    betDiv.textContent = `Bet: ${formatMoney(hand.bet)}${hand.doubled ? ' (2×)' : ''}${hand.insured ? ` + ins ${formatMoney(hand.insured)}` : ''}`;
 
     const showTotal = hand.status !== 'blackjack' && hand.status !== 'surrendered';
     let totDiv = blockEl.querySelector('.hand-total');
@@ -409,7 +409,7 @@ function buildSeat(p, isMe, isActive) {
   seat.appendChild(nameDiv);
 
   const chipsDiv = div('seat-chips');
-  chipsDiv.textContent = `$${p.chips.toLocaleString()}`;
+  chipsDiv.textContent = formatMoney(p.chips);
   seat.appendChild(chipsDiv);
 
   if (!p.connected) {
@@ -445,7 +445,7 @@ function buildHandBlock(hand, isActiveHand) {
   if (hand.cards.length > 0) {
     const t = clientTotal(hand.cards);
     const betDiv = div('hand-bet');
-    betDiv.textContent = `Bet: $${hand.bet}${hand.doubled ? ' (2×)' : ''}${hand.insured ? ` + ins $${hand.insured}` : ''}`;
+    betDiv.textContent = `Bet: ${formatMoney(hand.bet)}${hand.doubled ? ' (2×)' : ''}${hand.insured ? ` + ins ${formatMoney(hand.insured)}` : ''}`;
     block.appendChild(betDiv);
 
     if (hand.status !== 'blackjack' && hand.status !== 'surrendered') {
@@ -592,23 +592,27 @@ function showPanel(id) {
 
 // ─── Bet Panel ────────────────────────────────────────────────────────────────
 
+function formatMoney(n) {
+  if (n === 0) return '$0';
+  return n % 1 === 0 ? `$${n.toLocaleString()}` : `$${n.toFixed(2)}`;
+}
+
 function renderBetPanel(me) {
   const chipRow = el('chip-row');
   chipRow.innerHTML = '';
-  const denominations = [5, 10, 25, 100, 500];
+  const denominations = [0.5, 1, 5];
   for (const val of denominations) {
     const btn = document.createElement('button');
     btn.className = 'chip';
-    if (val === 25)  btn.classList.add('chip-25');
-    if (val === 100) btn.classList.add('chip-100');
-    if (val === 500) btn.classList.add('chip-500');
-    btn.textContent = val >= 1000 ? `$${val/1000}k` : `$${val}`;
+    if (val === 1) btn.classList.add('chip-1');
+    if (val === 5) btn.classList.add('chip-5');
+    btn.textContent = formatMoney(val);
     const would = pendingBet + val;
     btn.disabled = would > state.rules.maxBet || val > me.chips;
     btn.addEventListener('click', () => addChip(val, me));
     chipRow.appendChild(btn);
   }
-  el('bet-amount').textContent = `$${pendingBet}`;
+  el('bet-amount').textContent = formatMoney(pendingBet);
   el('btn-place-bet').disabled = pendingBet < state.rules.minBet && me.chips >= state.rules.minBet;
 }
 
@@ -616,7 +620,7 @@ function addChip(val, me) {
   const would = pendingBet + val;
   if (would <= state.rules.maxBet && would <= me.chips) {
     pendingBet = would;
-    el('bet-amount').textContent = `$${pendingBet}`;
+    el('bet-amount').textContent = formatMoney(pendingBet);
     renderBetPanel(me);
   }
 }
@@ -650,7 +654,7 @@ function stopBetTimer() {
 
 el('btn-clear-bet').addEventListener('click', () => {
   pendingBet = 0;
-  el('bet-amount').textContent = '$0';
+  el('bet-amount').textContent = formatMoney(0);
   if (state) {
     const me = state.players.find(p => p.id === myId);
     if (me) renderBetPanel(me);
@@ -707,10 +711,10 @@ function clientRankVal(rank) {
 function renderPayoutMsg(me) {
   if (!me || !me.hands || !me.hands.length) { el('payout-msg').textContent = ''; return; }
   const parts = me.hands.map(h => {
-    if (h.result === 'blackjack') return `★ Blackjack! +$${Math.floor(h.bet * (state.rules.blackjackPayout === '3:2' ? 1.5 : 1.2))}`;
-    if (h.result === 'win')       return `Win! +$${h.bet}`;
+    if (h.result === 'blackjack') return `★ Blackjack! +${formatMoney(h.bet * (state.rules.blackjackPayout === '3:2' ? 1.5 : 1.2))}`;
+    if (h.result === 'win')       return `Win! +${formatMoney(h.bet)}`;
     if (h.result === 'push')      return 'Push — bet returned';
-    if (h.result === 'lose')      return `Lose -$${h.bet}`;
+    if (h.result === 'lose')      return `Lose -${formatMoney(h.bet)}`;
     if (h.result === 'surrender') return `Surrender — half bet returned`;
     return '';
   }).filter(Boolean);
@@ -752,9 +756,9 @@ el('rules-save').addEventListener('click', () => {
     doubleAfterSplit:   el('r-das').checked,
     maxSplitHands:      parseInt(el('r-max-split-hands').value),
     hitSplitAces:       el('r-hsa').checked,
-    minBet:             parseInt(el('r-min').value),
-    maxBet:             parseInt(el('r-max').value),
-    buyIn:              parseInt(el('r-buyin').value),
+    minBet:             parseFloat(el('r-min').value),
+    maxBet:             parseFloat(el('r-max').value),
+    buyIn:              parseFloat(el('r-buyin').value),
     maxPlayers:         parseInt(el('r-max-players').value),
     bettingTime:        parseInt(el('r-btime').value),
   });
@@ -823,7 +827,7 @@ function renderSidebar() {
 
     if (p.role !== 'dealer') {
       const chips = div('pl-chips');
-      chips.textContent = `$${p.chips.toLocaleString()}`;
+      chips.textContent = formatMoney(p.chips);
       item.appendChild(chips);
     }
 

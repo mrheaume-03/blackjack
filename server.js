@@ -10,6 +10,8 @@ const PORT = process.env.PORT || 3000;
 
 app.use(express.static(path.join(__dirname, 'public')));
 
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
 // ─── Card Utilities ───────────────────────────────────────────────────────────
 
 function buildShoe(numDecks) {
@@ -69,9 +71,9 @@ const DEFAULT_RULES = {
   doubleAfterSplit: true,
   maxSplitHands: 2,
   hitSplitAces: false,
-  minBet: 5,
-  maxBet: 500,
-  buyIn: 1000,
+  minBet: 0.5,
+  maxBet: 20,
+  buyIn: 10,
   bettingTime: 30,
   maxPlayers: 6,
 };
@@ -144,7 +146,7 @@ function beginBetting() {
 function doPlaceBet(id, amount) {
   const p = game.players.find(p => p.id === id);
   if (!p || p.role === 'dealer' || p.hands.length) return;
-  amount = Math.max(game.rules.minBet, Math.min(game.rules.maxBet, Math.floor(amount), p.chips));
+  amount = Math.max(game.rules.minBet, Math.min(game.rules.maxBet, amount, p.chips));
   p.chips -= amount;
   p.hands = [newHand(amount)];
   p.curHand = 0;
@@ -156,16 +158,19 @@ function doPlaceBet(id, amount) {
   }
 }
 
-function beginDealing() {
+async function beginDealing() {
   if (game.phase !== 'betting') return;
   const bettors = game.players.filter(p => p.role !== 'dealer' && p.hands.length);
   if (!bettors.length) { game.phase = 'waiting'; emit(); return; }
   game.phase = 'playing';
-  for (const p of bettors) p.hands[0].cards.push(draw());
-  game.dealer.cards.push(draw());
-  for (const p of bettors) p.hands[0].cards.push(draw());
-  game.dealer.cards.push(draw());
   emit();
+
+  // Deal one card at a time: P1, P2, ..., Dealer up card, P1, P2, ..., Dealer hole card
+  for (const p of bettors) { p.hands[0].cards.push(draw()); emit(); await sleep(600); }
+  game.dealer.cards.push(draw()); emit(); await sleep(600);
+  for (const p of bettors) { p.hands[0].cards.push(draw()); emit(); await sleep(600); }
+  game.dealer.cards.push(draw()); emit(); await sleep(600);
+
   if (game.rules.insurance && game.dealer.cards[0].rank === 'A') {
     game.insuranceOpen = true;
     emit();
@@ -226,10 +231,22 @@ function advanceTurn() {
       setTimeout(advanceTurn, 600);
       return;
     }
+    if (!p.connected) {
+      h.status = 'stood';
+      emit();
+      setTimeout(advanceTurn, 600);
+      return;
+    }
     emit();
     return;
   }
 
+  // Skip dealer play if no player has a live standing hand
+  const anyLive = game.players.some(p =>
+    p.role !== 'dealer' &&
+    p.hands.some(h => h.status !== 'bust' && h.status !== 'surrendered' && h.status !== 'blackjack')
+  );
+  if (!anyLive) { payout(); return; }
   dealerPlay();
 }
 
@@ -259,12 +276,12 @@ function payout() {
   for (const p of game.players.filter(p => p.role !== 'dealer' && p.hands.length)) {
     for (const h of p.hands) {
       if (h.result) continue;
-      if (h.status === 'surrendered') { p.chips += Math.floor(h.bet / 2); h.result = 'surrender'; continue; }
+      if (h.status === 'surrendered') { p.chips += h.bet / 2; h.result = 'surrender'; continue; }
       if (h.status === 'bust') { h.result = 'lose'; continue; }
       const pt = handTotal(h.cards);
       if (h.status === 'blackjack') {
         const mult = game.rules.blackjackPayout === '3:2' ? 1.5 : 1.2;
-        p.chips += h.bet + Math.floor(h.bet * mult);
+        p.chips += h.bet + h.bet * mult;
         h.result = 'blackjack';
       } else if (dBust || pt > dt) {
         p.chips += h.bet * 2;
@@ -313,7 +330,7 @@ function playerAction(id, action) {
     if (h.insDecided) return;
     h.insDecided = true;
     if (action === 'insurance') {
-      const ins = Math.floor(h.bet / 2);
+      const ins = h.bet / 2;
       if (p.chips >= ins) { p.chips -= ins; h.insured = ins; }
     }
     emit();
@@ -444,7 +461,7 @@ io.on('connection', socket => {
     if (socket.id !== game.hostId) return;
     const p = game.players.find(p => p.id === id);
     if (!p || p.role === 'dealer') return;
-    p.chips = Math.max(0, p.chips + Math.round(Number(amount)));
+    p.chips = Math.max(0, p.chips + Number(amount));
     emit();
   });
 
